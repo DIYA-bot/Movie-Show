@@ -202,14 +202,16 @@
         /**
          * Renders a single movie or TV show card.
          * @param {Object} item - The movie or TV show object.
-         * @param {string} type - 'movie' or 'tv'.
          * @returns {HTMLElement} The created card element.
          */
-        function createCard(item, type) {
+        function createCard(item) {
             const card = document.createElement('div');
             card.className = `bg-gray-700 rounded-xl shadow-xl overflow-hidden cursor-pointer
                               transform transition-transform duration-300 hover:scale-105 hover:shadow-2xl
-                              flex flex-col h-full`; // Added h-full for consistent height
+                              flex flex-col h-full`;
+
+            // Determine the actual media type for the item
+            const mediaType = item.media_type || (item.title ? 'movie' : 'tv'); // Fallback if media_type is not present
 
             const posterPath = item.poster_path ? `${IMAGE_BASE_URL}${item.poster_path}` : IMAGE_FALLBACK_URL;
             const title = item.title || item.name;
@@ -222,11 +224,12 @@
                 <div class="p-4 flex-grow flex flex-col justify-between">
                     <h3 class="text-xl font-semibold mb-2 text-white line-clamp-2">${title}</h3>
                     <p class="text-gray-400 text-sm">
-                        ${type === 'movie' ? 'Movie' : 'TV Show'} &bull; ${year}
+                        ${mediaType === 'movie' ? 'Movie' : (mediaType === 'tv' ? 'TV Show' : 'Content')} &bull; ${year}
                     </p>
                 </div>
             `;
-            card.addEventListener('click', () => showDetails(item.id, type));
+            // Pass the correctly determined mediaType to showDetails
+            card.addEventListener('click', () => showDetails(item.id, mediaType));
             return card;
         }
 
@@ -243,7 +246,8 @@
 
             if (items && items.length > 0) {
                 items.forEach(item => {
-                    resultsContainer.appendChild(createCard(item, type));
+                    // No need to pass 'type' from here, createCard will determine it from item.media_type
+                    resultsContainer.appendChild(createCard(item));
                 });
             } else {
                 noResults.classList.remove('hidden');
@@ -270,8 +274,12 @@
             const tvData = await fetchData('/search/tv', { query });
 
             if (movieData && tvData) {
-                // Combine and prioritize movies, then TV shows
-                const combinedResults = [...movieData.results, ...tvData.results];
+                // Combine results from both movie and TV show searches
+                const combinedResults = [
+                    ...(movieData.results ? movieData.results.map(item => ({ ...item, media_type: 'movie' })) : []),
+                    ...(tvData.results ? tvData.results.map(item => ({ ...item, media_type: 'tv' })) : [])
+                ];
+
                 // Filter out items without a poster or title to avoid broken cards
                 const filteredResults = combinedResults.filter(item => item.poster_path && (item.title || item.name));
                 // Sort by popularity (descending)
@@ -296,9 +304,10 @@
             const trendingTv = await fetchData('/trending/tv/week');
 
             if (trendingMovies && trendingTv) {
+                // Add media_type explicitly for combined trending results
                 const combinedTrending = [
-                    ...(trendingMovies.results || []),
-                    ...(trendingTv.results || [])
+                    ...(trendingMovies.results ? trendingMovies.results.map(item => ({ ...item, media_type: 'movie' })) : []),
+                    ...(trendingTv.results ? trendingTv.results.map(item => ({ ...item, media_type: 'tv' })) : [])
                 ];
                 // Filter out items without a poster or title to avoid broken cards
                 const filteredTrending = combinedTrending.filter(item => item.poster_path && (item.title || item.name));
