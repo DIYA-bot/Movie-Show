@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie/TV Show Finder</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c; /* Dark background */
+            color: #e2e8f0; /* Light text */
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #2d3748;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4a5568;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #616e7f;
+        }
+
+        /* Styling for the modal backdrop */
+        .modal-backdrop {
+            background-color: rgba(0, 0, 0, 0.7);
+        }
+        /* Hide scrollbar for the body when modal is open */
+        body.modal-open {
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8">
+    <!-- Main Container -->
+    <div class="container mx-auto max-w-7xl w-full">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-4xl sm:text-5xl font-extrabold text-blue-400 mb-2">
+                Movie & TV Show Hub
+            </h1>
+            <p class="text-xl text-gray-300">Discover your next favorite show or film!</p>
+        </header>
+
+        <!-- Search Section -->
+        <section class="mb-8 w-full">
+            <div class="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4">
+                <div class="relative w-full sm:w-2/3 lg:w-1/2">
+                    <input type="text" id="searchInput" placeholder="Search for movies or TV shows..."
+                           class="w-full pl-10 pr-4 py-3 rounded-xl shadow-lg bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fas fa-search text-gray-400"></i>
+                    </div>
+                </div>
+                <button id="searchButton"
+                        class="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg
+                               transform transition-transform duration-300 active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    Search
+                </button>
+            </div>
+        </section>
+
+        <!-- Loading Indicator -->
+        <div id="loadingIndicator" class="hidden text-center text-blue-400 text-xl mb-6">
+            <i class="fas fa-spinner fa-spin mr-2"></i> Loading...
+        </div>
+
+        <!-- Results Section -->
+        <section class="w-full">
+            <h2 id="resultsTitle" class="text-3xl font-bold text-center mb-6 text-blue-300">Trending Now</h2>
+            <div id="resultsContainer"
+                 class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                <!-- Movie/TV Show cards will be injected here by JavaScript -->
+            </div>
+            <div id="noResults" class="hidden text-center text-gray-400 text-xl mt-8">
+                No results found. Try a different search!
+            </div>
+        </section>
+    </div>
+
+    <!-- Details Modal -->
+    <div id="detailsModal"
+         class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 hidden modal-backdrop">
+        <div class="bg-gray-800 rounded-xl shadow-2xl p-6 sm:p-8 max-w-3xl w-full max-h-[90vh] overflow-y-auto relative
+                    transform transition-all duration-300 scale-95 opacity-0"
+             id="modalContent">
+            <button id="closeModal"
+                    class="absolute top-4 right-4 text-gray-400 hover:text-white text-3xl transition-colors duration-200">
+                &times;
+            </button>
+            <div id="modalBody" class="flex flex-col sm:flex-row gap-6">
+                <!-- Details will be injected here by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // *** IMPORTANT: Replace 'YOUR_API_KEY' with your actual TMDb API key ***
+        // You can get a free API key by registering at https://www.themoviedb.org/documentation/api
+        const API_KEY = ''; // YOUR_API_KEY
+        const BASE_URL = 'https://api.themoviedb.org/3';
+        const IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
+        const IMAGE_FALLBACK_URL = 'https://placehold.co/500x750/333333/cccccc?text=No+Image';
+
+        const searchInput = document.getElementById('searchInput');
+        const searchButton = document.getElementById('searchButton');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const noResults = document.getElementById('noResults');
+        const resultsTitle = document.getElementById('resultsTitle');
+
+        const detailsModal = document.getElementById('detailsModal');
+        const modalContent = document.getElementById('modalContent');
+        const closeModalButton = document.getElementById('closeModal');
+        const modalBody = document.getElementById('modalBody');
+
+        /**
+         * Fetches data from the TMDb API.
+         * @param {string} endpoint - The API endpoint (e.g., '/trending/movie/week').
+         * @param {Object} [params={}] - Optional query parameters.
+         * @returns {Promise<Object|null>} The JSON response or null on error.
+         */
+        async function fetchData(endpoint, params = {}) {
+            showLoading();
+            const url = new URL(`${BASE_URL}${endpoint}`);
+            url.searchParams.append('api_key', API_KEY);
+            for (const key in params) {
+                url.searchParams.append(key, params[key]);
+            }
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                hideLoading();
+                return data;
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                hideLoading();
+                displayMessage('Failed to fetch data. Please check your network connection or API key.', 'error');
+                return null;
+            }
+        }
+
+        /**
+         * Displays a temporary message to the user.
+         * @param {string} message - The message to display.
+         * @param {string} type - 'success' or 'error' (determines color).
+         */
+        function displayMessage(message, type) {
+            const messageDiv = document.createElement('div');
+            messageDiv.textContent = message;
+            messageDiv.className = `fixed bottom-8 right-8 p-4 rounded-lg shadow-lg z-50 text-white
+                                    ${type === 'error' ? 'bg-red-600' : 'bg-green-600'}
+                                    transition-all duration-300 transform translate-y-full opacity-0`;
+            document.body.appendChild(messageDiv);
+
+            // Animate in
+            setTimeout(() => {
+                messageDiv.classList.remove('translate-y-full', 'opacity-0');
+                messageDiv.classList.add('translate-y-0', 'opacity-100');
+            }, 50);
+
+            // Animate out and remove
+            setTimeout(() => {
+                messageDiv.classList.remove('translate-y-0', 'opacity-100');
+                messageDiv.classList.add('translate-y-full', 'opacity-0');
+                messageDiv.addEventListener('transitionend', () => messageDiv.remove());
+            }, 3000);
+        }
+
+
+        /**
+         * Displays the loading indicator.
+         */
+        function showLoading() {
+            loadingIndicator.classList.remove('hidden');
+            resultsContainer.innerHTML = ''; // Clear previous results
+            noResults.classList.add('hidden');
+        }
+
+        /**
+         * Hides the loading indicator.
+         */
+        function hideLoading() {
+            loadingIndicator.classList.add('hidden');
+        }
+
+        /**
+         * Renders a single movie or TV show card.
+         * @param {Object} item - The movie or TV show object.
+         * @param {string} type - 'movie' or 'tv'.
+         * @returns {HTMLElement} The created card element.
+         */
+        function createCard(item, type) {
+            const card = document.createElement('div');
+            card.className = `bg-gray-700 rounded-xl shadow-xl overflow-hidden cursor-pointer
+                              transform transition-transform duration-300 hover:scale-105 hover:shadow-2xl
+                              flex flex-col h-full`; // Added h-full for consistent height
+
+            const posterPath = item.poster_path ? `${IMAGE_BASE_URL}${item.poster_path}` : IMAGE_FALLBACK_URL;
+            const title = item.title || item.name;
+            const releaseDate = item.release_date || item.first_air_date;
+            const year = releaseDate ? new Date(releaseDate).getFullYear() : 'N/A';
+
+            card.innerHTML = `
+                <img src="${posterPath}" alt="${title} Poster" class="w-full h-auto object-cover rounded-t-xl"
+                     onerror="this.onerror=null; this.src='${IMAGE_FALLBACK_URL}';">
+                <div class="p-4 flex-grow flex flex-col justify-between">
+                    <h3 class="text-xl font-semibold mb-2 text-white line-clamp-2">${title}</h3>
+                    <p class="text-gray-400 text-sm">
+                        ${type === 'movie' ? 'Movie' : 'TV Show'} &bull; ${year}
+                    </p>
+                </div>
+            `;
+            card.addEventListener('click', () => showDetails(item.id, type));
+            return card;
+        }
+
+        /**
+         * Displays search results.
+         * @param {Array} items - Array of movie/TV show objects.
+         * @param {string} type - 'movie' or 'tv'.
+         * @param {string} titleText - Text for the results title.
+         */
+        function displayResults(items, type, titleText) {
+            resultsContainer.innerHTML = '';
+            resultsTitle.textContent = titleText;
+            noResults.classList.add('hidden');
+
+            if (items && items.length > 0) {
+                items.forEach(item => {
+                    resultsContainer.appendChild(createCard(item, type));
+                });
+            } else {
+                noResults.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * Searches for movies and TV shows based on the query.
+         */
+        async function searchContent() {
+            const query = searchInput.value.trim();
+            if (!query) {
+                displayMessage('Please enter a search term.', 'error');
+                return;
+            }
+            if (!API_KEY) {
+                displayMessage('API Key is missing! Please get a TMDb API key and update the code.', 'error');
+                return;
+            }
+
+            // Fetch movies
+            const movieData = await fetchData('/search/movie', { query });
+            // Fetch TV shows
+            const tvData = await fetchData('/search/tv', { query });
+
+            if (movieData && tvData) {
+                // Combine and prioritize movies, then TV shows
+                const combinedResults = [...movieData.results, ...tvData.results];
+                // Filter out items without a poster or title to avoid broken cards
+                const filteredResults = combinedResults.filter(item => item.poster_path && (item.title || item.name));
+                // Sort by popularity (descending)
+                filteredResults.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+
+                displayResults(filteredResults, 'combined', `Search Results for "${query}"`);
+            } else {
+                displayResults([], 'combined', `Search Results for "${query}"`);
+            }
+        }
+
+        /**
+         * Fetches and displays trending movies and TV shows.
+         */
+        async function fetchTrending() {
+             if (!API_KEY) {
+                displayMessage('API Key is missing! Please get a TMDb API key and update the code.', 'error');
+                return;
+            }
+
+            const trendingMovies = await fetchData('/trending/movie/week');
+            const trendingTv = await fetchData('/trending/tv/week');
+
+            if (trendingMovies && trendingTv) {
+                const combinedTrending = [
+                    ...(trendingMovies.results || []),
+                    ...(trendingTv.results || [])
+                ];
+                // Filter out items without a poster or title to avoid broken cards
+                const filteredTrending = combinedTrending.filter(item => item.poster_path && (item.title || item.name));
+                // Sort by popularity (descending)
+                filteredTrending.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+
+                displayResults(filteredTrending, 'combined', 'Trending Now');
+            } else {
+                displayResults([], 'combined', 'Trending Now');
+            }
+        }
+
+        /**
+         * Shows detailed information in a modal.
+         * @param {number} id - The ID of the movie/TV show.
+         * @param {string} type - 'movie' or 'tv'.
+         */
+        async function showDetails(id, type) {
+            if (!API_KEY) {
+                displayMessage('API Key is missing! Please get a TMDb API key and update the code.', 'error');
+                return;
+            }
+
+            const details = await fetchData(`/${type}/${id}`);
+
+            if (details) {
+                const posterPath = details.poster_path ? `${IMAGE_BASE_URL}${details.poster_path}` : IMAGE_FALLBACK_URL;
+                const title = details.title || details.name;
+                const overview = details.overview || 'No overview available.';
+                const releaseDate = details.release_date || details.first_air_date;
+                const year = releaseDate ? new Date(releaseDate).getFullYear() : 'N/A';
+                const voteAverage = details.vote_average ? details.vote_average.toFixed(1) : 'N/A';
+                const genres = details.genres ? details.genres.map(g => g.name).join(', ') : 'N/A';
+                const runtime = details.runtime ? `${details.runtime} min` : (details.episode_run_time && details.episode_run_time.length > 0 ? `${details.episode_run_time[0]} min/episode` : 'N/A');
+                const tagline = details.tagline ? `<p class="italic text-gray-400 mb-4">"${details.tagline}"</p>` : '';
+
+                modalBody.innerHTML = `
+                    <div class="sm:w-1/3 flex-shrink-0">
+                        <img src="${posterPath}" alt="${title} Poster" class="w-full h-auto rounded-lg shadow-xl"
+                             onerror="this.onerror=null; this.src='${IMAGE_FALLBACK_URL}';">
+                    </div>
+                    <div class="sm:w-2/3 flex flex-col justify-center">
+                        <h2 class="text-3xl sm:text-4xl font-bold text-white mb-2">${title}</h2>
+                        ${tagline}
+                        <p class="text-gray-300 text-lg mb-4">${overview}</p>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-gray-400 text-sm">
+                            <p><strong>Type:</strong> ${type === 'movie' ? 'Movie' : 'TV Show'}</p>
+                            <p><strong>Release Date:</strong> ${releaseDate || 'N/A'}</p>
+                            <p><strong>Rating:</strong> <span class="text-yellow-400">${voteAverage}</span> / 10</p>
+                            <p><strong>Genres:</strong> ${genres}</p>
+                            <p><strong>Duration:</strong> ${runtime}</p>
+                            ${details.number_of_seasons ? `<p><strong>Seasons:</strong> ${details.number_of_seasons}</p>` : ''}
+                            ${details.number_of_episodes ? `<p><strong>Episodes:</strong> ${details.number_of_episodes}</p>` : ''}
+                        </div>
+                    </div>
+                `;
+                detailsModal.classList.remove('hidden');
+                document.body.classList.add('modal-open'); // Prevent body scroll
+                setTimeout(() => {
+                    modalContent.classList.remove('scale-95', 'opacity-0');
+                    modalContent.classList.add('scale-100', 'opacity-100');
+                }, 50); // Small delay for animation
+            }
+        }
+
+        /**
+         * Closes the details modal.
+         */
+        function closeModal() {
+            modalContent.classList.remove('scale-100', 'opacity-100');
+            modalContent.classList.add('scale-95', 'opacity-0');
+            modalContent.addEventListener('transitionend', () => {
+                detailsModal.classList.add('hidden');
+                document.body.classList.remove('modal-open');
+            }, { once: true }); // Ensure event listener is removed after one use
+        }
+
+        // Event Listeners
+        searchButton.addEventListener('click', searchContent);
+        searchInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                searchContent();
+            }
+        });
+        closeModalButton.addEventListener('click', closeModal);
+        detailsModal.addEventListener('click', (event) => {
+            // Close modal if clicking outside the modal content
+            if (event.target === detailsModal) {
+                closeModal();
+            }
+        });
+
+        // Initial fetch of trending content when the page loads
+        document.addEventListener('DOMContentLoaded', fetchTrending);
+    </script>
+</body>
+</html>
